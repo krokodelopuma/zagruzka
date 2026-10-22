@@ -93,36 +93,82 @@ static void     start_blink_red(uint8_t times);
 static void     update_indicators(void);
 static void     handle_element(uint8_t value);
 
+/* Прототипы нашего драйвера */
+void My_GPIO_Init(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t mode, uint32_t pull);
+void My_GPIO_WritePin(GPIO_TypeDef *GPIOx, uint16_t pin, uint8_t state);
+uint8_t My_GPIO_ReadPin(GPIO_TypeDef *GPIOx, uint16_t pin);
+void My_GPIO_WritePort(GPIO_TypeDef *GPIOx, uint16_t mask, uint16_t data);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* СОБСТВЕННЫЙ ДРАЙВЕР GPIO*/
+
+void My_GPIO_Init(GPIO_TypeDef *GPIOx, uint16_t pin, uint32_t mode, uint32_t pull)
+{
+    if (GPIOx == GPIOA) __HAL_RCC_GPIOA_CLK_ENABLE();
+    if (GPIOx == GPIOB) __HAL_RCC_GPIOB_CLK_ENABLE();
+    if (GPIOx == GPIOC) __HAL_RCC_GPIOC_CLK_ENABLE();
+    if (GPIOx == GPIOD) __HAL_RCC_GPIOD_CLK_ENABLE();
+
+    uint32_t pin_pos = 0;
+    while (!((pin >> pin_pos) & 1)) pin_pos++;
+
+    GPIOx->MODER &= ~(3U << (pin_pos * 2));
+    GPIOx->MODER |= (mode << (pin_pos * 2));
+
+    GPIOx->PUPDR &= ~(3U << (pin_pos * 2));
+    GPIOx->PUPDR |= (pull << (pin_pos * 2));
+}
+
+void My_GPIO_WritePin(GPIO_TypeDef *GPIOx, uint16_t pin, uint8_t state)
+{
+    if (state) {
+        GPIOx->BSRR = pin;
+    } else {
+        GPIOx->BSRR = (pin << 16);
+    }
+}
+
+uint8_t My_GPIO_ReadPin(GPIO_TypeDef *GPIOx, uint16_t pin)
+{
+    return (GPIOx->IDR & pin) ? 1 : 0;
+}
+
+void My_GPIO_WritePort(GPIO_TypeDef *GPIOx, uint16_t mask, uint16_t data)
+{
+    uint32_t odr = GPIOx->ODR;
+    GPIOx->BSRR = ((odr & mask) << 16) | (data & mask); 
+}
+
+
+/* --- ФУНКЦИИ ИНДИКАЦИИ --- */
+
 static void leds_off(void)
 {
-    HAL_GPIO_WritePin(GPIOD,
-                      GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15,
-                      GPIO_PIN_RESET);
+    My_GPIO_WritePin(GPIOD, GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15, 0);
 }
 
 static void led_green(uint8_t on)
 {
-    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    My_GPIO_WritePin(GPIOD, GPIO_PIN_13, on);
 }
 
 static void led_yellow(uint8_t on)
 {
-    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    My_GPIO_WritePin(GPIOD, GPIO_PIN_14, on);
 }
 
 static void led_red(uint8_t on)
 {
-    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, on ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    My_GPIO_WritePin(GPIOD, GPIO_PIN_15, on);
 }
 
 static uint8_t button_poll(void)
 {
-    uint8_t  raw = !HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_15);
+    uint8_t  raw = !My_GPIO_ReadPin(GPIOC, GPIO_PIN_15);
     uint32_t now = HAL_GetTick();
 
     switch (btn_state)
@@ -157,7 +203,7 @@ static uint8_t button_poll(void)
 
     case BTN_LONG_SENT:
         if (!raw) {
-            btn_state = BTN_RELEASED;   /* сразу в RELEASED, без возврата 1 */
+            btn_state = BTN_RELEASED;
         }
         break;
     }
@@ -264,7 +310,16 @@ int main(void)
   /* USER CODE END SysInit */
 
   MX_GPIO_Init();
+  
   /* USER CODE BEGIN 2 */
+
+  /* Инициализация пинов через мой драйвер */
+  /* 1 = OUTPUT, 0 = INPUT */
+  /* 0 = No pull, 1 = Pull-up */
+  My_GPIO_Init(GPIOD, GPIO_PIN_13, 1, 0); 
+  My_GPIO_Init(GPIOD, GPIO_PIN_14, 1, 0);
+  My_GPIO_Init(GPIOD, GPIO_PIN_15, 1, 0);
+  My_GPIO_Init(GPIOC, GPIO_PIN_15, 0, 1); // Кнопка на вход с подтяжкой
 
   reset_input();
   state = STATE_INPUT;
